@@ -7,7 +7,7 @@
  *  scuro. Fa parte della libreria di Faber Layout come sesta card, ma
  *  funziona anche da sola su qualunque dashboard.
  */
-const SC_VERSION = "1.0.0";
+const SC_VERSION = "1.0.2";
 console.info(`%c SMART CARD %c v${SC_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -477,8 +477,13 @@ class SmartCardEditor extends HTMLElement {
     const hs = this._hass ? this._hass.states : {};
     const ids = Object.keys(hs);
     const renderList = filterText => {
-      const f = (filterText || "").toLowerCase().trim();
-      const matches = (f === "" ? ids : ids.filter(id => this._entityName(id).toLowerCase().includes(f) || id.toLowerCase().includes(f))).slice(0, 80);
+      // Parole in AND, in qualunque ordine — non l'intera frase come
+      // sequenza continua (stesso motivo del picker di viste in Faber Layout).
+      const words = (filterText || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const matches = (!words.length ? ids : ids.filter(id => {
+        const hay = (this._entityName(id) + " " + id).toLowerCase();
+        return words.every(w => hay.includes(w));
+      })).slice(0, 80);
       list.innerHTML = matches.length
         ? matches.map(id => `<div class="sce-opt" data-val="${id}">${this._esc(this._entityName(id))}<small>${id}</small></div>`).join("")
         : `<div class="sce-opt">Nessun risultato</div>`;
