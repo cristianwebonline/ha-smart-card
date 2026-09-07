@@ -7,13 +7,42 @@
  *  scuro. Fa parte della libreria di Faber Layout come sesta card, ma
  *  funziona anche da sola su qualunque dashboard.
  */
-const SC_VERSION = "1.0.4";
+const SC_VERSION = "1.1.0";
 console.info(`%c SMART CARD %c v${SC_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
 
-const SC_DEFAULTS = { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 60 }, elements: [] };
+// Aspetto della tela stessa (il "contenitore"), separato per tema: di serie
+// riprende il pannello vetro delle altre card di famiglia, ma da qui si può
+// cambiare sfondo, bordo e raggio senza toccare le forme dentro.
+const SC_CONTAINER_DEFAULT = {
+  light: { bg: "rgba(255,255,255,.62)", border: "rgba(15,23,42,.08)", radius: 18 },
+  dark: { bg: "rgba(30,38,48,.72)", border: "rgba(255,255,255,.09)", radius: 18 },
+};
+const SC_DEFAULTS = {
+  type: "custom:smart-card", name: "Smart Card",
+  canvas: { w: 100, h: 60 },
+  container: SC_CONTAINER_DEFAULT,
+  elements: [],
+};
 const SC_MIN_SIZE = 4;
+
+// Colori pronti: la stessa tavolozza già usata dalle altre card di famiglia
+// (ambra/azzurro come accenti, più i neutri), così una Smart Card disegnata a
+// mano resta coerente con Mini Card & co. senza doversi ricordare gli hex.
+const SC_SWATCHES = [
+  "#ffb020", "#e6890a", "#ff7043", "#e5484d",
+  "#38e08a", "#2fb37a", "#47b5ff", "#2a86c9",
+  "#b48ce8", "#eaf1f8", "#93a1b0", "#171a20",
+];
+
+function scMergeContainer(c) {
+  const src = c || {};
+  return {
+    light: Object.assign({}, SC_CONTAINER_DEFAULT.light, src.light || {}),
+    dark: Object.assign({}, SC_CONTAINER_DEFAULT.dark, src.dark || {}),
+  };
+}
 
 const SC_ELEMENT_TYPES = [
   { type: "rect", label: "Rettangolo", icon: "mdi:square-outline" },
@@ -53,6 +82,20 @@ function scDefaultElement(type) {
 
 function scEsc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function scClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// Bordo / raggio / opacità valgono per QUALUNQUE tipo di forma, quindi stanno
+// sul riquadro esterno invece che dentro il disegno del singolo tipo: così un
+// bordo si può mettere anche attorno a un testo o a un misuratore.
+function scElementBoxStyle(el, isDark) {
+  const c = (isDark ? el.dark : el.light) || {};
+  const parts = [];
+  const bw = Number(el.borderWidth) || 0;
+  if (bw > 0) parts.push(`border:${bw}px solid ${c.borderColor || "#8888"}`);
+  if (el.radius != null && el.type !== "circle") parts.push(`border-radius:${Number(el.radius) || 0}px`);
+  if (el.opacity != null && el.opacity !== 100) parts.push(`opacity:${scClamp(Number(el.opacity), 0, 100) / 100}`);
+  if (bw > 0) parts.push("box-sizing:border-box");
+  return parts.join(";");
+}
 
 // ---------------------------------------------------------------------------
 // Disegno di UN elemento — condiviso identico tra l'anteprima reale (SmartCard)
@@ -117,6 +160,7 @@ class SmartCard extends HTMLElement {
   setConfig(config) {
     this._cfg = Object.assign({}, SC_DEFAULTS, config || {}, {
       canvas: Object.assign({}, SC_DEFAULTS.canvas, (config && config.canvas) || {}),
+      container: scMergeContainer(config && config.container),
       elements: (config && config.elements) || [],
     });
     this._built = false;
@@ -146,20 +190,22 @@ class SmartCard extends HTMLElement {
     const isDark = this._lastDark;
     const elsHTML = cfg.elements.filter(el => !el.hidden).map(el => `
       <div class="sc-el" data-el-id="${el.id}" data-el-type="${el.type}"
-        style="position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%">
+        style="position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;${scElementBoxStyle(el, isDark)}">
         ${scElementInner(el, isDark, this._hass)}
       </div>`).join("");
-    const panelBg = isDark ? "rgba(30,38,48,.72)" : "rgba(255,255,255,.62)";
-    const panelStroke = isDark ? "rgba(255,255,255,.09)" : "rgba(15,23,42,.08)";
+    const box = (cfg.container || SC_CONTAINER_DEFAULT)[isDark ? "dark" : "light"] || {};
+    const panelBg = box.bg;
+    const panelStroke = box.border;
+    const panelRadius = box.radius ?? 18;
     const panelShadow = isDark ? "0 8px 20px rgba(0,0,0,.32)" : "0 8px 20px rgba(15,23,42,.12)";
     this.innerHTML = `
       <style>
         .sc-root{container-type:inline-size;display:block;
           font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
         .sc-card{position:relative;width:100%;aspect-ratio:${cfg.canvas.w}/${cfg.canvas.h};overflow:hidden;
-          border-radius:18px;background:${panelBg};border:1px solid ${panelStroke};
+          border-radius:${panelRadius}px;background:${panelBg};border:1px solid ${panelStroke};
           backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:${panelShadow}}
-        .sc-card::before{content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;
+        .sc-card::before{content:"";position:absolute;inset:0;border-radius:${panelRadius}px;pointer-events:none;
           background:radial-gradient(120% 60% at 50% -10%,rgba(255,255,255,${isDark ? ".06" : ".5"}),transparent 60%)}
         .sc-el{overflow:hidden}
       </style>
@@ -248,7 +294,7 @@ const SCE_CSS = `
   .sce-themebtn{padding:6px 12px;border-radius:999px;border:1.5px solid var(--divider-color);background:var(--card-background-color);
     color:var(--secondary-text-color);font-size:12px;font-weight:700;cursor:pointer}
   .sce-themebtn.sel{border-color:var(--primary-color);color:var(--primary-text-color);background:rgba(var(--rgb-primary-color,3,169,244),.12)}
-  .sce-stage-wrap{background:repeating-conic-gradient(#8883 0% 25%,#0000 0% 50%) 50%/16px 16px;border-radius:14px;padding:14px}
+  .sce-stage-wrap{background:repeating-conic-gradient(#8883 0% 25%,#0000 0% 50%) 50%/16px 16px;border-radius:14px;padding:14px;overflow-x:auto}
   .sce-stage{position:relative;width:100%;margin:0 auto;max-width:420px;border-radius:18px;overflow:hidden;
     backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 8px 20px rgba(0,0,0,.25);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
@@ -282,12 +328,33 @@ const SCE_CSS = `
   .sce-opt{padding:8px 11px;font-size:13px;color:var(--primary-text-color);cursor:pointer}
   .sce-opt:hover{background:rgba(var(--rgb-primary-color,3,169,244),.14)}
   .sce-opt small{display:block;font-size:10px;color:var(--secondary-text-color)}
+  .sce-el.locked{cursor:default}
+  .sce-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+  .sce-chip{width:24px;height:24px;border-radius:7px;border:1.5px solid var(--divider-color);cursor:pointer;padding:0;flex:0 0 auto}
+  .sce-chip.sel{outline:2px solid var(--primary-color);outline-offset:1px}
+  .sce-colorbox{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
+  .sce-colorhead{display:flex;align-items:center;gap:6px}
+  .sce-colorhead input[type=color]{width:32px;height:32px;padding:0;border-radius:8px;border:1px solid var(--divider-color);cursor:pointer;flex:0 0 auto}
+  .sce-colorhead input[type=text]{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .sce-zoom{display:flex;align-items:center;gap:6px;justify-content:center;margin-top:8px}
+  .sce-zoombtn{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--divider-color);background:var(--card-background-color);
+    color:var(--primary-text-color);font-size:15px;font-weight:800;cursor:pointer;line-height:1}
+  .sce-zoomval{font-size:11.5px;font-weight:700;color:var(--secondary-text-color);min-width:44px;text-align:center}
+  .sce-jsonwrap{display:flex;flex-direction:column;gap:8px}
+  .sce-json{width:100%;min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.45;
+    padding:10px;border-radius:10px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .sce-btnrow{display:flex;gap:8px;flex-wrap:wrap}
+  .sce-btn{padding:8px 14px;border-radius:999px;border:1.5px solid var(--divider-color);background:var(--card-background-color);
+    color:var(--primary-text-color);font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+  .sce-btn.primary{border-color:var(--primary-color);background:rgba(var(--rgb-primary-color,3,169,244),.14)}
+  .sce-note{font-size:11.5px;color:var(--secondary-text-color)}
 `;
 
 class SmartCardEditor extends HTMLElement {
   setConfig(config) {
     const merged = Object.assign({}, SC_DEFAULTS, config || {}, {
       canvas: Object.assign({}, SC_DEFAULTS.canvas, (config && config.canvas) || {}),
+      container: scMergeContainer(config && config.container),
       elements: (config && config.elements) ? config.elements.map(e => Object.assign({}, e)) : [],
     });
     if (this._internalChange) { this._internalChange = false; this._config = merged; return; }
@@ -301,6 +368,99 @@ class SmartCardEditor extends HTMLElement {
   _entityName(id) { const hs = this._hass ? this._hass.states : {}; return (hs[id] && hs[id].attributes && hs[id].attributes.friendly_name) || id; }
   _isDark() { return !!this._previewDark; }
   _elById(id) { return this._config.elements.find(e => e.id === id); }
+  _zoom() { return this._zoomPct || 100; }
+  _themeKey() { return this._isDark() ? "dark" : "light"; }
+  _boxProp(k) { return (this._config.container || SC_CONTAINER_DEFAULT)[this._themeKey()][k]; }
+  // Nell'editor la tela è un filo più coprente della card vera: sotto c'è la
+  // scacchiera della trasparenza e, con uno sfondo molto trasparente, i colori
+  // delle forme si giudicherebbero male.
+  _stageBg() {
+    const bg = this._boxProp("bg");
+    return bg && /rgba?\(/.test(bg) ? bg.replace(/[\d.]+\)$/, m => Math.min(1, parseFloat(m) + 0.18) + ")") : bg;
+  }
+
+  // Un campo colore = pastiglia nativa + hex scrivibile a mano + tavolozza
+  // pronta della famiglia. Il valore può anche essere un rgba() (serve per lo
+  // sfondo vetro della tela), quindi il selettore nativo mostra solo l'hex.
+  _colorFieldHTML(id, label, value) {
+    const hex = /^#[0-9a-f]{6}$/i.test(value || "") ? value : "#888888";
+    return `<div class="sce-colorbox" data-colorfield="${id}">
+      <label>${this._esc(label)}</label>
+      <div class="sce-colorhead">
+        <input type="color" id="${id}Pick" value="${hex}">
+        <input type="text" id="${id}" value="${this._esc(value || "")}" spellcheck="false">
+      </div>
+      <div class="sce-chips">
+        ${SC_SWATCHES.map(s => `<button type="button" class="sce-chip${(value || "").toLowerCase() === s.toLowerCase() ? " sel" : ""}"
+          data-swatch="${s}" style="background:${s}" title="${s}"></button>`).join("")}
+      </div>
+    </div>`;
+  }
+
+  // Collega un campo colore costruito da _colorFieldHTML: pastiglia, testo e
+  // tavolozza scrivono tutti sullo stesso valore, poi chiamano `apply`.
+  _wireColorField(id, apply) {
+    const box = this.querySelector(`[data-colorfield="${id}"]`);
+    if (!box) return;
+    const txt = box.querySelector(`#${id}`);
+    const pick = box.querySelector(`#${id}Pick`);
+    const set = v => {
+      txt.value = v;
+      if (/^#[0-9a-f]{6}$/i.test(v)) pick.value = v;
+      box.querySelectorAll(".sce-chip").forEach(ch => ch.classList.toggle("sel", ch.dataset.swatch.toLowerCase() === v.toLowerCase()));
+      apply(v);
+    };
+    txt.addEventListener("input", () => set(txt.value));
+    pick.addEventListener("input", () => set(pick.value));
+    box.querySelectorAll(".sce-chip").forEach(ch => ch.addEventListener("click", () => set(ch.dataset.swatch)));
+  }
+
+  _wireJson() {
+    on(this, "#sceJsonOpen", "click", () => { this._showJson = true; this._render(); });
+    on(this, "#sceJsonClose", "click", () => { this._showJson = false; this._render(); });
+    on(this, "#sceJsonCopy", "click", () => {
+      const ta = this.querySelector("#sceJson");
+      const msg = this.querySelector("#sceJsonMsg");
+      // In una WebView navigator.clipboard può non esserci: select() + il
+      // testo già visibile restano comunque una via d'uscita manuale.
+      if (ta && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ta.value).then(
+          () => { if (msg) msg.textContent = "Codice copiato."; },
+          () => { ta.select(); if (msg) msg.textContent = "Copia non permessa qui: il testo è selezionato, copialo a mano."; });
+      } else if (ta) {
+        ta.select();
+        if (msg) msg.textContent = "Il testo è selezionato: copialo a mano.";
+      }
+    });
+    on(this, "#sceJsonApply", "click", () => {
+      const ta = this.querySelector("#sceJson");
+      const msg = this.querySelector("#sceJsonMsg");
+      let parsed;
+      try { parsed = JSON.parse(ta.value); } catch (err) {
+        if (msg) msg.textContent = "JSON non valido: " + err.message;
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.elements)) {
+        if (msg) msg.textContent = "Manca l'elenco 'elements': non sembra una Smart Card.";
+        return;
+      }
+      // Ogni forma deve avere un id proprio, altrimenti selezione e livelli si
+      // confondono: chi arriva senza id (o con un id ripetuto) ne riceve uno.
+      const seen = new Set();
+      parsed.elements.forEach(el => {
+        if (!el.id || seen.has(el.id)) el.id = scUid();
+        seen.add(el.id);
+      });
+      this._config = Object.assign({}, SC_DEFAULTS, parsed, {
+        type: "custom:smart-card",
+        canvas: Object.assign({}, SC_DEFAULTS.canvas, parsed.canvas || {}),
+        container: scMergeContainer(parsed.container),
+      });
+      this._sel = null;
+      this._emit();
+      this._render();
+    });
+  }
 
   _render() {
     if (!this._config) return;
@@ -323,9 +483,28 @@ class SmartCardEditor extends HTMLElement {
       </div>
       <div class="sce-stage-wrap">
         <div class="sce-stage" id="sceStage" style="aspect-ratio:${c.canvas.w}/${c.canvas.h};
-          background:${this._isDark() ? "rgba(30,38,48,.9)" : "rgba(255,255,255,.85)"};
-          border:1px solid ${this._isDark() ? "rgba(255,255,255,.09)" : "rgba(15,23,42,.08)"}">
+          width:${this._zoom()}%;max-width:${Math.round(420 * this._zoom() / 100)}px;
+          background:${this._stageBg()};border:1px solid ${this._boxProp("border")};
+          border-radius:${this._boxProp("radius")}px">
           ${c.elements.filter(el => !el.hidden).map(el => this._elHTML(el)).join("")}
+        </div>
+        <div class="sce-zoom">
+          <button type="button" class="sce-zoombtn" data-zoom="out" title="Rimpicciolisci">−</button>
+          <span class="sce-zoomval">${this._zoom()}%</span>
+          <button type="button" class="sce-zoombtn" data-zoom="in" title="Ingrandisci">+</button>
+          <button type="button" class="sce-zoombtn" data-zoom="fit" title="Adatta" style="font-size:12px">⤢</button>
+        </div>
+      </div>
+      <div class="sce-fld">
+        <div class="sce-section-title">Proporzioni e aspetto della tela</div>
+        <div class="sce-row">
+          <div class="sce-fld"><label>Larghezza</label><input id="cvW" type="number" min="10" max="400" value="${c.canvas.w}"></div>
+          <div class="sce-fld"><label>Altezza</label><input id="cvH" type="number" min="10" max="400" value="${c.canvas.h}"></div>
+          <div class="sce-fld"><label>Raggio angoli</label><input id="cvRadius" type="number" min="0" max="60" value="${this._boxProp("radius")}"></div>
+        </div>
+        <div class="sce-row">
+          ${this._colorFieldHTML("cvBg", "Sfondo tela", this._boxProp("bg"))}
+          ${this._colorFieldHTML("cvBorder", "Bordo tela", this._boxProp("border"))}
         </div>
       </div>
       <div class="sce-fld">
@@ -335,19 +514,36 @@ class SmartCardEditor extends HTMLElement {
         </div>
       </div>
       ${sel ? `<div class="sce-props" id="sceProps">${this._propsHTML(sel)}</div>` : ""}
+      <div class="sce-fld">
+        <div class="sce-section-title">Codice della card (JSON)</div>
+        ${this._showJson ? `<div class="sce-jsonwrap">
+          <textarea class="sce-json" id="sceJson" spellcheck="false">${this._esc(JSON.stringify(this._config, null, 2))}</textarea>
+          <div class="sce-btnrow">
+            <button type="button" class="sce-btn primary" id="sceJsonApply">Applica</button>
+            <button type="button" class="sce-btn" id="sceJsonCopy">Copia</button>
+            <button type="button" class="sce-btn" id="sceJsonClose">Chiudi</button>
+          </div>
+          <div class="sce-note" id="sceJsonMsg">Incolla qui il codice di una Smart Card per ricrearla identica.</div>
+        </div>` : `<div class="sce-btnrow"><button type="button" class="sce-btn" id="sceJsonOpen">Apri codice / esporta</button></div>`}
+      </div>
     </div>`;
     this._wireTop();
     this._wireStage();
     this._wireLayers();
+    this._wireJson();
     if (sel) this._wireProps(sel);
   }
 
   _elHTML(el) {
     const isSel = el.id === this._sel;
-    return `<div class="sce-el${isSel ? " sel" : ""}" data-el-id="${el.id}"
-      style="left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%">
+    // Le maniglie compaiono solo su una forma selezionata E non bloccata: una
+    // forma bloccata si può ancora scegliere dai livelli per modificarne i
+    // valori, ma non si sposta né si ridimensiona per sbaglio col dito.
+    const handles = isSel && !el.locked;
+    return `<div class="sce-el${isSel ? " sel" : ""}${el.locked ? " locked" : ""}" data-el-id="${el.id}"
+      style="left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%;${scElementBoxStyle(el, this._isDark())}">
       <div class="sce-el-inner">${scElementInner(el, this._isDark(), this._hass)}</div>
-      ${isSel ? `<div class="sce-handle nw" data-corner="nw"></div><div class="sce-handle ne" data-corner="ne"></div>
+      ${handles ? `<div class="sce-handle nw" data-corner="nw"></div><div class="sce-handle ne" data-corner="ne"></div>
         <div class="sce-handle sw" data-corner="sw"></div><div class="sce-handle se" data-corner="se"></div>` : ""}
     </div>`;
   }
@@ -360,6 +556,8 @@ class SmartCardEditor extends HTMLElement {
       <div class="sce-layer-name">${this._esc(label)}</div>
       <button type="button" class="sce-icbtn" data-act="up" title="Sposta su">▲</button>
       <button type="button" class="sce-icbtn" data-act="down" title="Sposta giù">▼</button>
+      <button type="button" class="sce-icbtn" data-act="dup" title="Duplica">⧉</button>
+      <button type="button" class="sce-icbtn" data-act="lock" title="${el.locked ? "Sblocca" : "Blocca"}">${el.locked ? "🔒" : "🔓"}</button>
       <button type="button" class="sce-icbtn" data-act="hide" title="${el.hidden ? "Mostra" : "Nascondi"}">${el.hidden ? "🚫" : "👁"}</button>
       <button type="button" class="sce-icbtn" data-act="del" title="Elimina">🗑</button>
     </div>`;
@@ -394,14 +592,32 @@ class SmartCardEditor extends HTMLElement {
         <div class="sce-fld"><label>Icona accesa</label><input id="pIconOn" value="${this._esc(el.icon_on || "")}"></div>
         <div class="sce-fld"><label>Icona spenta</label><input id="pIconOff" value="${this._esc(el.icon_off || "")}"></div></div>`);
     }
-    if (el.type !== "text" || true) {
-      // colore — non serve per "divider" un'etichetta diversa, ma il concetto vale per tutti i tipi con un colore
-    }
-    parts.push(`<div class="sce-fld"><label>Colore chiaro / scuro</label>
+    // Posizione e dimensione anche a numeri: col dito si piazza a occhio, ma
+    // per allineare due forme al pixel serve poter scrivere il valore.
+    parts.push(`<div class="sce-row">
+      <div class="sce-fld"><label>X</label><input id="pX" type="number" step="0.5" value="${Math.round(el.x * 10) / 10}"></div>
+      <div class="sce-fld"><label>Y</label><input id="pY" type="number" step="0.5" value="${Math.round(el.y * 10) / 10}"></div>
+      <div class="sce-fld"><label>Largh.</label><input id="pW" type="number" step="0.5" value="${Math.round(el.w * 10) / 10}"></div>
+      <div class="sce-fld"><label>Alt.</label><input id="pH" type="number" step="0.5" value="${Math.round(el.h * 10) / 10}"></div>
+    </div>`);
+    parts.push(`<div class="sce-row">
+      <div class="sce-fld"><label>Bordo (spessore)</label><input id="pBorderW" type="number" min="0" max="20" value="${el.borderWidth || 0}"></div>
+      ${el.type === "circle" ? "" : `<div class="sce-fld"><label>Raggio angoli</label><input id="pRadius" type="number" min="0" max="80" value="${el.radius ?? (el.type === "rect" ? 8 : 0)}"></div>`}
+      <div class="sce-fld"><label>Opacità %</label><input id="pOpacity" type="number" min="0" max="100" value="${el.opacity ?? 100}"></div>
+    </div>`);
+
+    // Un campo colore per volta, riferito al tema scelto in alto (Chiaro /
+    // Scuro): mostrarli tutti e quattro insieme riempiva il pannello di
+    // controlli quasi identici, difficili da distinguere sul telefono.
+    const tk = this._themeKey();
+    const cur = (el[tk] || {});
+    parts.push(`<div class="sce-fld">
+      <label>Colori del tema ${this._isDark() ? "scuro" : "chiaro"} — cambia in alto per l'altro</label>
       <div class="sce-color-row">
-        <div class="sce-swatch"><input type="color" id="pColorLight" value="${(el.light && el.light.color) || "#5b6472"}"><span>Chiaro</span></div>
-        <div class="sce-swatch"><input type="color" id="pColorDark" value="${(el.dark && el.dark.color) || "#8a94a1"}"><span>Scuro</span></div>
+        ${this._colorFieldHTML("pFill", "Riempimento", cur.color || (this._isDark() ? "#8a94a1" : "#5b6472"))}
+        ${(el.borderWidth || 0) > 0 ? this._colorFieldHTML("pBorderC", "Bordo", cur.borderColor || "#888888") : ""}
       </div></div>`);
+    parts.push(`<div class="sce-fld"><label>Nome interno (ID)</label><input id="pId" value="${this._esc(el.id)}"></div>`);
     return parts.join("");
   }
 
@@ -428,6 +644,33 @@ class SmartCardEditor extends HTMLElement {
       this._sel = el.id;
       this._dirty();
     });
+    // Tela: proporzioni, raggio e colori del contenitore.
+    on(this, "#cvW", "change", e => { this._config.canvas.w = scClamp(parseInt(e.target.value) || 100, 10, 400); this._dirty(); });
+    on(this, "#cvH", "change", e => { this._config.canvas.h = scClamp(parseInt(e.target.value) || 60, 10, 400); this._dirty(); });
+    on(this, "#cvRadius", "change", e => {
+      this._config.container[this._themeKey()].radius = scClamp(parseInt(e.target.value) || 0, 0, 60);
+      this._dirty();
+    });
+    this._wireColorField("cvBg", v => {
+      this._config.container[this._themeKey()].bg = v;
+      const st = this.querySelector("#sceStage");
+      if (st) st.style.background = this._stageBg();
+      this._emit();
+    });
+    this._wireColorField("cvBorder", v => {
+      this._config.container[this._themeKey()].border = v;
+      const st = this.querySelector("#sceStage");
+      if (st) st.style.borderColor = v;
+      this._emit();
+    });
+    // Zoom: cambia solo quanto è grande l'anteprima sullo schermo, non la
+    // card salvata — utile sul telefono per piazzare una forma con precisione.
+    this.querySelectorAll("[data-zoom]").forEach(b => b.onclick = () => {
+      const mode = b.dataset.zoom;
+      const cur = this._zoom();
+      this._zoomPct = mode === "fit" ? 100 : scClamp(mode === "in" ? cur + 25 : cur - 25, 50, 300);
+      this._render();
+    });
   }
 
   _dirty() { this._emit(); this._render(); }
@@ -444,6 +687,19 @@ class SmartCardEditor extends HTMLElement {
           const [it] = this._config.elements.splice(idx, 1); this._config.elements.splice(idx + 1, 0, it);
         } else if (btn.dataset.act === "down" && idx > 0) {
           const [it] = this._config.elements.splice(idx, 1); this._config.elements.splice(idx - 1, 0, it);
+        } else if (btn.dataset.act === "dup") {
+          // La copia nasce spostata di poco, altrimenti resta esattamente
+          // sotto l'originale e sembra che il tasto non abbia fatto nulla.
+          const src = this._config.elements[idx];
+          const copy = Object.assign({}, src, { id: scUid() });
+          if (src.light) copy.light = Object.assign({}, src.light);
+          if (src.dark) copy.dark = Object.assign({}, src.dark);
+          copy.x = scClamp(src.x + 3, 0, this._config.canvas.w - src.w);
+          copy.y = scClamp(src.y + 3, 0, this._config.canvas.h - src.h);
+          this._config.elements.splice(idx + 1, 0, copy);
+          this._sel = copy.id;
+        } else if (btn.dataset.act === "lock") {
+          this._config.elements[idx].locked = !this._config.elements[idx].locked;
         } else if (btn.dataset.act === "hide") {
           this._config.elements[idx].hidden = !this._config.elements[idx].hidden;
         } else if (btn.dataset.act === "del") {
@@ -466,15 +722,51 @@ class SmartCardEditor extends HTMLElement {
     on(this, "#pMax", "change", e => { el.max = parseFloat(e.target.value) || 100; this._dirty(); });
     on(this, "#pIconOn", "input", e => { el.icon_on = e.target.value; this._emit(); this._patchStage(el); });
     on(this, "#pIconOff", "input", e => { el.icon_off = e.target.value; this._emit(); this._patchStage(el); });
-    on(this, "#pColorLight", "input", e => { el.light = { color: e.target.value }; this._emit(); this._patchStage(el); });
-    on(this, "#pColorDark", "input", e => { el.dark = { color: e.target.value }; this._emit(); this._patchStage(el); });
+    // Posizione/dimensione a numeri, sempre entro i bordi della tela.
+    const cv = this._config.canvas;
+    on(this, "#pX", "change", e => { el.x = scClamp(parseFloat(e.target.value) || 0, 0, cv.w - el.w); this._dirty(); });
+    on(this, "#pY", "change", e => { el.y = scClamp(parseFloat(e.target.value) || 0, 0, cv.h - el.h); this._dirty(); });
+    on(this, "#pW", "change", e => { el.w = scClamp(parseFloat(e.target.value) || SC_MIN_SIZE, SC_MIN_SIZE, cv.w - el.x); this._dirty(); });
+    on(this, "#pH", "change", e => { el.h = scClamp(parseFloat(e.target.value) || SC_MIN_SIZE, SC_MIN_SIZE, cv.h - el.y); this._dirty(); });
+    on(this, "#pBorderW", "change", e => { el.borderWidth = scClamp(parseInt(e.target.value) || 0, 0, 20); this._dirty(); });
+    on(this, "#pRadius", "change", e => { el.radius = scClamp(parseInt(e.target.value) || 0, 0, 80); this._dirty(); });
+    on(this, "#pOpacity", "change", e => { el.opacity = scClamp(parseInt(e.target.value), 0, 100) || 0; this._dirty(); });
+    on(this, "#pId", "change", e => {
+      const v = (e.target.value || "").trim();
+      // Un id vuoto o già usato romperebbe selezione e livelli: in quel caso
+      // si tiene quello di prima e il campo torna com'era.
+      if (!v || this._config.elements.some(x => x !== el && x.id === v)) { e.target.value = el.id; return; }
+      if (this._sel === el.id) this._sel = v;
+      el.id = v;
+      this._dirty();
+    });
+    // Colori del tema attualmente in anteprima (l'altro si edita cambiando
+    // il selettore Chiaro/Scuro in alto).
+    const tk = this._themeKey();
+    this._wireColorField("pFill", v => {
+      el[tk] = Object.assign({}, el[tk], { color: v });
+      this._emit(); this._patchStage(el);
+    });
+    this._wireColorField("pBorderC", v => {
+      el[tk] = Object.assign({}, el[tk], { borderColor: v });
+      this._emit(); this._patchStage(el);
+    });
     this.querySelectorAll(".sce-picker").forEach(p => this._wirePicker(p, el));
   }
 
   _patchStage(el) {
     const wrap = this.querySelector(`.sce-stage [data-el-id="${el.id}"]`);
-    const inner = wrap && wrap.querySelector(".sce-el-inner");
+    if (!wrap) return;
+    const inner = wrap.querySelector(".sce-el-inner");
     if (inner) inner.innerHTML = scElementInner(el, this._isDark(), this._hass);
+    // Bordo/raggio/opacità stanno sul riquadro esterno: vanno riscritti qui,
+    // senza toccare posizione e dimensione (che il trascinamento aggiorna già).
+    const box = scElementBoxStyle(el, this._isDark());
+    wrap.style.border = ""; wrap.style.borderRadius = ""; wrap.style.opacity = "";
+    box.split(";").filter(Boolean).forEach(rule => {
+      const i = rule.indexOf(":");
+      wrap.style.setProperty(rule.slice(0, i).trim(), rule.slice(i + 1).trim());
+    });
     const layerRow = this.querySelector(`.sce-layer[data-id="${el.id}"] .sce-layer-name`);
     if (layerRow && el.type === "text") layerRow.textContent = el.text || "Testo";
   }
@@ -557,6 +849,9 @@ class SmartCardEditor extends HTMLElement {
     const el = this._elById(id);
     const wasSelected = this._sel === id;
     if (!wasSelected) { e.stopPropagation(); this._sel = id; this._render(); return; }
+    // Bloccata: resta selezionata (le proprietà si modificano lo stesso) ma
+    // non si sposta, ed è quello che serve per uno sfondo o una cornice.
+    if (el.locked) return;
     // Elemento già selezionato: qui touch-action:none è attivo, quindi
     // possiamo gestire noi il gesto senza che il browser tenti di scorrere.
     e.preventDefault();
