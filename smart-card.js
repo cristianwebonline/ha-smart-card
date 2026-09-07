@@ -314,7 +314,7 @@ class SmartCardEditor extends HTMLElement {
         <button type="button" class="sce-themebtn${this._previewDark ? " sel" : ""}" data-theme="dark">🌙 Scuro</button>
       </div>
       <div class="sce-stage-wrap">
-        <div class="sce-stage" id="sceStage" style="aspect-ratio:${c.canvas.w}/${c.canvas.h}">
+        <div class="sce-stage" id="sceStage" style="aspect-ratio:${c.canvas.w}/${c.canvas.h};background:${this._isDark() ? "#1a1b21" : "#ffffff"}">
           ${c.elements.filter(el => !el.hidden).map(el => this._elHTML(el)).join("")}
         </div>
       </div>
