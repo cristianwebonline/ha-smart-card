@@ -7,7 +7,7 @@
  *  scuro. Fa parte della libreria di Faber Layout come sesta card, ma
  *  funziona anche da sola su qualunque dashboard.
  */
-const SC_VERSION = "1.0.3";
+const SC_VERSION = "1.0.4";
 console.info(`%c SMART CARD %c v${SC_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -250,16 +250,16 @@ const SCE_CSS = `
   .sce-themebtn.sel{border-color:var(--primary-color);color:var(--primary-text-color);background:rgba(var(--rgb-primary-color,3,169,244),.12)}
   .sce-stage-wrap{background:repeating-conic-gradient(#8883 0% 25%,#0000 0% 50%) 50%/16px 16px;border-radius:14px;padding:14px}
   .sce-stage{position:relative;width:100%;margin:0 auto;max-width:420px;border-radius:18px;overflow:hidden;
-    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 8px 20px rgba(0,0,0,.25);touch-action:none;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 8px 20px rgba(0,0,0,.25);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-  .sce-el{position:absolute;cursor:grab}
-  .sce-el.sel{outline:2px solid var(--primary-color);outline-offset:1px}
+  .sce-el{position:absolute;cursor:grab;touch-action:pan-x pan-y}
+  .sce-el.sel{outline:2px solid var(--primary-color);outline-offset:1px;touch-action:none}
   .sce-el-inner{width:100%;height:100%;overflow:hidden}
   .sce-handle{position:absolute;width:16px;height:16px;margin:-8px;border-radius:50%;background:var(--primary-color);
     border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.4);touch-action:none;z-index:2}
   .sce-handle.nw{left:0;top:0;cursor:nwse-resize}.sce-handle.ne{left:100%;top:0;cursor:nesw-resize}
   .sce-handle.sw{left:0;top:100%;cursor:nesw-resize}.sce-handle.se{left:100%;top:100%;cursor:nwse-resize}
-  .sce-layers{display:flex;flex-direction:column;gap:6px}
+  .sce-layers{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;padding-right:2px}
   .sce-layer{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1.5px solid var(--divider-color);
     background:var(--card-background-color);cursor:pointer}
   .sce-layer.sel{border-color:var(--primary-color)}
@@ -528,9 +528,19 @@ class SmartCardEditor extends HTMLElement {
   // derive. Durante il gesto si aggiorna solo lo style dell'elemento toccato
   // (niente ridisegno completo): il config-changed parte una volta sola al
   // rilascio, per non inondare l'host di eventi durante un trascinamento.
+  // Su schermo tattile una forma NON selezionata ha touch-action:pan-x/pan-y
+  // (vedi CSS .sce-el) — un dito che scorre partendo da lì fa scorrere il
+  // foglio normalmente, esattamente come su qualunque altra area della tela.
+  // Solo la forma GIÀ selezionata ha touch-action:none, quindi si trascina
+  // senza che il browser lo scambi per uno scroll di pagina. Toccare la tela
+  // fuori da ogni forma deassegna la selezione (come in un editor grafico),
+  // così si torna subito scorrevoli ovunque.
   _wireStage() {
     const stage = this.querySelector("#sceStage");
     if (!stage) return;
+    stage.addEventListener("pointerdown", e => {
+      if (e.target === stage && this._sel) { this._sel = null; this._render(); }
+    });
     stage.querySelectorAll(".sce-el").forEach(wrap => {
       wrap.addEventListener("pointerdown", e => {
         if (e.target.closest(".sce-handle")) return;
@@ -543,16 +553,18 @@ class SmartCardEditor extends HTMLElement {
   }
 
   _onElPointerDown(e, wrap) {
-    e.preventDefault();
     const id = wrap.dataset.elId;
     const el = this._elById(id);
     const wasSelected = this._sel === id;
+    if (!wasSelected) { e.stopPropagation(); this._sel = id; this._render(); return; }
+    // Elemento già selezionato: qui touch-action:none è attivo, quindi
+    // possiamo gestire noi il gesto senza che il browser tenti di scorrere.
+    e.preventDefault();
     const stage = this.querySelector("#sceStage");
     const rect = stage.getBoundingClientRect();
     const orig = { x: el.x, y: el.y };
     let lastX = e.clientX, lastY = e.clientY, moved = 0, engaged = false;
     const move = ev => {
-      if (!wasSelected) return;
       moved += Math.abs(ev.clientX - lastX) + Math.abs(ev.clientY - lastY);
       lastX = ev.clientX; lastY = ev.clientY;
       if (!engaged && moved > 8) engaged = true;
@@ -567,11 +579,12 @@ class SmartCardEditor extends HTMLElement {
     const up = () => {
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
-      if (!wasSelected) { this._sel = id; this._render(); return; }
+      document.removeEventListener("pointercancel", up);
       if (engaged) this._emit();
     };
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up, { once: true });
+    document.addEventListener("pointercancel", up, { once: true });
   }
 
   _onHandlePointerDown(e, handle) {
