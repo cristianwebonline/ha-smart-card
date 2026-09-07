@@ -7,7 +7,7 @@
  *  scuro. Fa parte della libreria di Faber Layout come sesta card, ma
  *  funziona anche da sola su qualunque dashboard.
  */
-const SC_VERSION = "1.0.2";
+const SC_VERSION = "1.0.3";
 console.info(`%c SMART CARD %c v${SC_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -149,11 +149,18 @@ class SmartCard extends HTMLElement {
         style="position:absolute;left:${el.x}%;top:${el.y}%;width:${el.w}%;height:${el.h}%">
         ${scElementInner(el, isDark, this._hass)}
       </div>`).join("");
+    const panelBg = isDark ? "rgba(30,38,48,.72)" : "rgba(255,255,255,.62)";
+    const panelStroke = isDark ? "rgba(255,255,255,.09)" : "rgba(15,23,42,.08)";
+    const panelShadow = isDark ? "0 8px 20px rgba(0,0,0,.32)" : "0 8px 20px rgba(15,23,42,.12)";
     this.innerHTML = `
       <style>
-        .sc-root{container-type:inline-size;display:block}
+        .sc-root{container-type:inline-size;display:block;
+          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
         .sc-card{position:relative;width:100%;aspect-ratio:${cfg.canvas.w}/${cfg.canvas.h};overflow:hidden;
-          border-radius:16px;background:var(--ha-card-background,var(--card-background-color,#1a1b21))}
+          border-radius:18px;background:${panelBg};border:1px solid ${panelStroke};
+          backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:${panelShadow}}
+        .sc-card::before{content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;
+          background:radial-gradient(120% 60% at 50% -10%,rgba(255,255,255,${isDark ? ".06" : ".5"}),transparent 60%)}
         .sc-el{overflow:hidden}
       </style>
       <div class="sc-root"><div class="sc-card">${elsHTML}</div></div>`;
@@ -242,8 +249,9 @@ const SCE_CSS = `
     color:var(--secondary-text-color);font-size:12px;font-weight:700;cursor:pointer}
   .sce-themebtn.sel{border-color:var(--primary-color);color:var(--primary-text-color);background:rgba(var(--rgb-primary-color,3,169,244),.12)}
   .sce-stage-wrap{background:repeating-conic-gradient(#8883 0% 25%,#0000 0% 50%) 50%/16px 16px;border-radius:14px;padding:14px}
-  .sce-stage{position:relative;width:100%;margin:0 auto;max-width:420px;border-radius:10px;overflow:hidden;
-    background:var(--ha-card-background,var(--card-background-color));box-shadow:0 4px 20px rgba(0,0,0,.25);touch-action:none}
+  .sce-stage{position:relative;width:100%;margin:0 auto;max-width:420px;border-radius:18px;overflow:hidden;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 8px 20px rgba(0,0,0,.25);touch-action:none;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
   .sce-el{position:absolute;cursor:grab}
   .sce-el.sel{outline:2px solid var(--primary-color);outline-offset:1px}
   .sce-el-inner{width:100%;height:100%;overflow:hidden}
@@ -314,7 +322,9 @@ class SmartCardEditor extends HTMLElement {
         <button type="button" class="sce-themebtn${this._previewDark ? " sel" : ""}" data-theme="dark">🌙 Scuro</button>
       </div>
       <div class="sce-stage-wrap">
-        <div class="sce-stage" id="sceStage" style="aspect-ratio:${c.canvas.w}/${c.canvas.h};background:${this._isDark() ? "#1a1b21" : "#ffffff"}">
+        <div class="sce-stage" id="sceStage" style="aspect-ratio:${c.canvas.w}/${c.canvas.h};
+          background:${this._isDark() ? "rgba(30,38,48,.9)" : "rgba(255,255,255,.85)"};
+          border:1px solid ${this._isDark() ? "rgba(255,255,255,.09)" : "rgba(15,23,42,.08)"}">
           ${c.elements.filter(el => !el.hidden).map(el => this._elHTML(el)).join("")}
         </div>
       </div>
